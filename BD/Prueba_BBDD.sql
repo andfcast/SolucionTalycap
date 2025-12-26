@@ -115,3 +115,85 @@ END
 GO
 
 ------------------------------------------------------
+/*
+Para realizar un bacjup de la Bd, por el SSMS, se da clic en la opción Back Up, donde se genera el archivo .bak de la
+base de datos. Otra opción es pr el mismo menú, pero la opción Generate Scripts, donde se puede personalizar qué se debe agregar
+al script, si solo la estructura, o tabien los datos que contienen las tablas, así como todos o determinados objetos de la BD.
+Para hacer el restore, usando el SSMS, se da por la opción Restore Database, donde carga el archivo .bak, o si se generó el script,
+en la base de datos aster, se ejecuta el script generado y se crea de nuevo la BD.
+*/
+
+----------------------------------------------------------------
+
+EXEC sp_configure 'show advanced options', 1;
+GO
+RECONFIGURE;
+GO
+EXEC sp_configure 'Ole Automation Procedures', 1;
+GO
+RECONFIGURE;
+GO
+
+BEGIN
+	IF OBJECT_ID('TempDB..#UsuariosAPI','U') IS NULL
+	BEGIN
+		CREATE TABLE #UsuariosAPI(
+		id INT PRIMARY KEY NOT NULL,
+		name VARCHAR(50),
+		userName VARCHAR(20),
+		email varchar(50)
+		);
+		CREATE TABLE #tmpLlamado (dt NVARCHAR(MAX));
+	END
+	DECLARE @api_url VARCHAR(50)= 'https://jsonplaceholder.typicode.com/users';
+	DECLARE @obj AS INT;
+	DECLARE @hr AS INT;
+	DECLARE @response AS NVARCHAR(MAX);
+	EXEC @hr = sp_OACreate 'MSXML2.ServerXMLHTTP.6.0', @obj OUT;
+    IF @hr <> 0 
+	BEGIN		
+		EXEC sp_OAGetErrorInfo @obj;
+	END
+
+	EXEC @hr = sp_OAMethod @obj, 'open', NULL, 'get', @api_url, 'false'; -- 'false' for synchronous call
+    IF @hr <> 0 
+	BEGIN		
+		EXEC sp_OAGetErrorInfo @obj;
+	END
+
+	EXEC @hr = sp_OAMethod @obj, 'send';
+    IF @hr <> 0 
+	BEGIN		
+		EXEC sp_OAGetErrorInfo @obj;
+	END
+
+	EXEC @hr = sp_OAMethod @obj, 'ResponseText', @response OUTPUT;
+    IF @hr <> 0 
+	BEGIN		
+		EXEC sp_OAGetErrorInfo @obj;
+	END
+
+	EXEC sp_OADestroy @obj;
+	SELECT @response
+	IF @response IS NOT NULL AND @response <> ''
+	BEGIN
+		INSERT INTO #UsuariosAPI (id,name,userName,email)
+		 SELECT [id], [name], [username],[email]
+         FROM OPENJSON(@response, N'$.data') 
+         WITH (
+			 id int '$.id',
+             name NVARCHAR(100) '$.name',
+             username NVARCHAR(100) '$.username',
+             email NVARCHAR(100) '$.email' 
+         );
+	END
+
+	SELECT e.Nombres + '' + e.Apellidos, e.Email FROM Empleados e 
+	inner join #UsuariosAPI u on e.Email = u.email
+
+	DROP TABLE #UsuariosAPI
+	drop TABLE #tmpLlamado
+END
+
+
+	
